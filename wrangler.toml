@@ -1,0 +1,27 @@
+name = "fimurex-ia-agent"
+main = "src/worker.ts"
+compatibility_date = "2026-04-14"
+compatibility_flags = ["nodejs_compat"]
+account_id = "834ee251038ce2f923cba9847f973c40"
+workers_dev = true
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[observability]
+enabled = true
+
+# Limite maximale pour les CPU-heavy LLM calls (plan payant jusqu'a 300 000 ms).
+[limits]
+cpu_ms = 30000
+
+# Variables de configuration publiques.
+[vars]
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+MODEL_VISION = "google/gemini-2.5-pro"
+MODEL_REASONING = "anthropic/claude-opus-4.6"
+
+# La clef API est transmise par le client dans l'en-tete Authorization ou
+# injectee en secret via : `wrangler secret put OPENROUTER_API_KEY`.

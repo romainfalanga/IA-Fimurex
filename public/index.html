@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fimurex AI Agent - Etude BA vers Carnet BA</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Fimurex AI Agent</h1>
+      <p class="subtitle">Transformation automatisee : Etude BA -> Carnet BA</p>
+    </header>
+
+    <main>
+      <section id="step-upload">
+        <h2>1. Depot de l'Etude BA</h2>
+        <div class="form-row">
+          <label for="pdf-input">Etude BA (PDF) :</label>
+          <input id="pdf-input" type="file" accept="application/pdf" />
+        </div>
+        <div class="form-row">
+          <label for="api-key">Clef OpenRouter :</label>
+          <input
+            id="api-key"
+            type="password"
+            placeholder="sk-or-v1-... (facultatif si secret defini cote serveur)"
+            autocomplete="off"
+          />
+        </div>
+        <div class="form-row">
+          <label for="echelle">Echelle des plans :</label>
+          <input id="echelle" type="text" value="1/75" />
+        </div>
+        <button id="btn-process" type="button">Generer le Carnet BA</button>
+      </section>
+
+      <section id="step-progress" hidden>
+        <h2>2. Traitement</h2>
+        <progress id="progress" max="100" value="0"></progress>
+        <pre id="log"></pre>
+      </section>
+
+      <section id="step-result" hidden>
+        <h2>3. Carnet BA</h2>
+        <div id="entete"></div>
+        <div id="carnet-container"></div>
+        <div id="total"></div>
+        <div class="form-row buttons">
+          <button id="btn-download-json" type="button">Telecharger JSON</button>
+          <button id="btn-download-csv" type="button">Telecharger CSV</button>
+        </div>
+        <details>
+          <summary>Donnees intermediaires (extraction, vision)</summary>
+          <pre id="debug"></pre>
+        </details>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Agent multi-modeles : Gemini (vision) + Claude Opus 4.6 (raisonnement),
+        orchestres via OpenRouter. Deploye sur Cloudflare Workers.
+      </p>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs" type="module"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
