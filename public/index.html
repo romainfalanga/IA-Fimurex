@@ -7,64 +7,168 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <header>
-      <h1>Fimurex AI Agent</h1>
-      <p class="subtitle">Transformation automatisee : Etude BA -> Carnet BA</p>
-    </header>
-
-    <main>
-      <section id="step-upload">
-        <h2>1. Depot de l'Etude BA</h2>
-        <div class="form-row">
-          <label for="pdf-input">Etude BA (PDF) :</label>
-          <input id="pdf-input" type="file" accept="application/pdf" />
+    <div id="app">
+      <!-- Sidebar -->
+      <aside id="sidebar">
+        <div class="sidebar-header">
+          <div class="logo">FIMUREX</div>
+          <div class="logo-sub">AI AGENT</div>
         </div>
-        <div class="form-row">
-          <label for="api-key">Clef OpenRouter :</label>
-          <input
-            id="api-key"
-            type="password"
-            placeholder="sk-or-v1-... (facultatif si secret defini cote serveur)"
-            autocomplete="off"
-          />
+
+        <nav id="pipeline-nav">
+          <div class="nav-label">PIPELINE</div>
+          <ul>
+            <li data-stage="ingestion">
+              <span class="stage-icon" data-status="pending"></span>
+              <span class="stage-label">Ingestion</span>
+            </li>
+            <li data-stage="extraction">
+              <span class="stage-icon" data-status="pending"></span>
+              <span class="stage-label">Extraction</span>
+            </li>
+            <li data-stage="vision">
+              <span class="stage-icon" data-status="pending"></span>
+              <span class="stage-label">Vision</span>
+            </li>
+            <li data-stage="assembly">
+              <span class="stage-icon" data-status="pending"></span>
+              <span class="stage-label">Assemblage</span>
+            </li>
+            <li data-stage="result">
+              <span class="stage-icon" data-status="pending"></span>
+              <span class="stage-label">Resultat</span>
+            </li>
+          </ul>
+        </nav>
+
+        <div class="sidebar-form">
+          <div class="nav-label">FICHIER</div>
+          <div class="form-group">
+            <label for="pdf-input" class="file-label" id="file-label-text">
+              <span class="file-icon">&#128196;</span>
+              Deposer un PDF
+            </label>
+            <input id="pdf-input" type="file" accept="application/pdf" />
+            <div id="file-name" class="file-name"></div>
+          </div>
+
+          <div class="nav-label">CLE API</div>
+          <div class="form-group">
+            <input
+              id="api-key"
+              type="password"
+              placeholder="sk-or-v1-..."
+              autocomplete="off"
+            />
+          </div>
+
+          <button id="btn-process" type="button">
+            <span class="btn-icon">&#9654;</span>
+            Generer le Carnet BA
+          </button>
         </div>
-        <div class="form-row">
-          <label for="echelle">Echelle des plans :</label>
-          <input id="echelle" type="text" value="1/75" />
+
+        <div class="sidebar-footer">
+          Gemini (vision) + Claude Opus (raisonnement)<br />
+          via OpenRouter / Cloudflare Workers
         </div>
-        <button id="btn-process" type="button">Generer le Carnet BA</button>
-      </section>
+      </aside>
 
-      <section id="step-progress" hidden>
-        <h2>2. Traitement</h2>
-        <progress id="progress" max="100" value="0"></progress>
-        <pre id="log"></pre>
-      </section>
+      <!-- Main content -->
+      <div id="main-wrapper">
+        <main id="main-content">
+          <!-- Welcome / empty state -->
+          <div id="stage-welcome" class="stage-panel active">
+            <div class="welcome">
+              <h1>Transformation Etude BA &rarr; Carnet BA</h1>
+              <p>Deposez un PDF d'Etude BA dans le panneau de gauche et cliquez sur <strong>Generer le Carnet BA</strong> pour commencer.</p>
+              <div class="welcome-steps">
+                <div class="welcome-step">
+                  <div class="welcome-step-num">1</div>
+                  <div><strong>Ingestion</strong><br/>Classification automatique de chaque page</div>
+                </div>
+                <div class="welcome-step">
+                  <div class="welcome-step-num">2</div>
+                  <div><strong>Extraction</strong><br/>Analyse textuelle par Claude</div>
+                </div>
+                <div class="welcome-step">
+                  <div class="welcome-step-num">3</div>
+                  <div><strong>Vision</strong><br/>Analyse visuelle par Gemini</div>
+                </div>
+                <div class="welcome-step">
+                  <div class="welcome-step-num">4</div>
+                  <div><strong>Assemblage</strong><br/>Construction du Carnet BA final</div>
+                </div>
+              </div>
+            </div>
+          </div>
 
-      <section id="step-result" hidden>
-        <h2>3. Carnet BA</h2>
-        <div id="entete"></div>
-        <div id="carnet-container"></div>
-        <div id="total"></div>
-        <div class="form-row buttons">
-          <button id="btn-download-json" type="button">Telecharger JSON</button>
-          <button id="btn-download-csv" type="button">Telecharger CSV</button>
+          <!-- Ingestion stage -->
+          <div id="stage-ingestion" class="stage-panel">
+            <div class="stage-header">
+              <h2>Ingestion du PDF</h2>
+              <span id="ingestion-counter" class="counter"></span>
+            </div>
+            <div id="page-grid" class="page-grid"></div>
+          </div>
+
+          <!-- Extraction stage -->
+          <div id="stage-extraction" class="stage-panel">
+            <div class="stage-header">
+              <h2>Extraction textuelle</h2>
+              <span id="extraction-counter" class="counter"></span>
+            </div>
+            <div id="extraction-results" class="data-panels"></div>
+          </div>
+
+          <!-- Vision stage -->
+          <div id="stage-vision" class="stage-panel">
+            <div class="stage-header">
+              <h2>Analyse visuelle</h2>
+              <span id="vision-counter" class="counter"></span>
+            </div>
+            <div id="vision-results" class="data-panels"></div>
+          </div>
+
+          <!-- Assembly stage -->
+          <div id="stage-assembly" class="stage-panel">
+            <div class="stage-header">
+              <h2>Assemblage du Carnet BA</h2>
+            </div>
+            <div id="assembly-status" class="assembly-status">
+              <div class="spinner"></div>
+              <span>Claude assemble le carnet a partir de toutes les donnees...</span>
+            </div>
+          </div>
+
+          <!-- Result stage -->
+          <div id="stage-result" class="stage-panel">
+            <div class="stage-header">
+              <h2>Carnet BA</h2>
+              <div class="header-actions">
+                <button id="btn-download-json" type="button" class="btn-secondary">JSON</button>
+                <button id="btn-download-csv" type="button" class="btn-secondary">CSV</button>
+              </div>
+            </div>
+            <div id="carnet-entete" class="carnet-entete"></div>
+            <div id="carnet-container"></div>
+            <div id="carnet-total" class="carnet-total"></div>
+            <div id="carnet-anomalies" class="carnet-anomalies"></div>
+          </div>
+        </main>
+
+        <!-- Activity log -->
+        <div id="activity-bar">
+          <div id="activity-toggle" class="activity-toggle">
+            <span class="toggle-icon">&#9650;</span>
+            <span>Activite de l'agent</span>
+            <span id="activity-count" class="activity-count">0</span>
+          </div>
+          <div id="activity-log" class="activity-log"></div>
         </div>
-        <details>
-          <summary>Donnees intermediaires (extraction, vision)</summary>
-          <pre id="debug"></pre>
-        </details>
-      </section>
-    </main>
+      </div>
+    </div>
 
-    <footer>
-      <p>
-        Agent multi-modeles : Gemini (vision) + Claude Opus 4.6 (raisonnement),
-        orchestres via OpenRouter. Deploye sur Cloudflare Workers.
-      </p>
-    </footer>
-
-    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs" type="module"></script>
     <script type="module" src="/app.js"></script>
   </body>
 </html>
