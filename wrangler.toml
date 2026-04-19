@@ -1,4 +1,4 @@
-name = "fimurex-ia-agent"
+name = "iafimurex"
 main = "src/worker.ts"
 compatibility_date = "2026-04-14"
 compatibility_flags = ["nodejs_compat"]
@@ -12,10 +12,6 @@ not_found_handling = "single-page-application"
 
 [observability]
 enabled = true
-
-# Limite maximale pour les CPU-heavy LLM calls (plan payant jusqu'a 300 000 ms).
-[limits]
-cpu_ms = 30000
 
 # Variables de configuration publiques.
 [vars]
