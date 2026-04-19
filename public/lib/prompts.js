@@ -1,4 +1,5 @@
 // Prompts systeme et utilisateur - section 7 de la specification.
+// Toutes les requetes passent par un seul modele : google/gemini-3.1-pro-preview.
 
 export const SYSTEM_REASONING =
   "Tu es un expert metreur en armatures beton arme chez Fimurex, specialise dans " +
@@ -10,7 +11,7 @@ export const SYSTEM_VISION =
   "les elements structurels sur les plans, tu comptes et tu mesures en " +
   "utilisant l'echelle du cartouche. Tu reponds TOUJOURS en JSON valide.";
 
-export function promptVisionPlan(niveau: string, legende: string): string {
+export function promptVisionPlan(niveau, legende) {
   return `Analyse l'image ci-jointe qui est un plan de coffrage de niveau "${niveau}".
 
 Legende du plan :
@@ -35,7 +36,7 @@ Reponds UNIQUEMENT en JSON selon le schema :
 }`;
 }
 
-export function promptExtractPageGarde(texte: string): string {
+export function promptExtractPageGarde(texte) {
   return `Extrais les metadonnees de cette page de garde d'Etude BA :
 
 TEXTE :
@@ -45,7 +46,7 @@ Format JSON :
 {"dossier": "", "chantier": "", "commune": "", "zone_sismique": "", "constructeur": "", "bet_sol": "", "date": ""}`;
 }
 
-export function promptExtractHypotheses(texte: string): string {
+export function promptExtractHypotheses(texte) {
   return `Extrais les hypotheses de calcul :
 
 TEXTE :
@@ -55,7 +56,7 @@ Format :
 {"fck_MPa": 0, "fyk_MPa": 0, "classe_ductilite": "", "enrobage_mm": 0, "recouvrement": "", "zone_sismique": "", "classe_sol": ""}`;
 }
 
-export function promptExtractLegende(texte: string): string {
+export function promptExtractLegende(texte) {
   return `Extrais la legende des armatures de ce plan de coffrage :
 
 TEXTE :
@@ -70,7 +71,7 @@ Format :
 }`;
 }
 
-export function promptExtractFiche(texte: string): string {
+export function promptExtractFiche(texte) {
   return `Extrais cette fiche de fabrication :
 
 TEXTE :
@@ -80,7 +81,7 @@ Format :
 {"repere": "", "niveau": "", "section": "", "poids_acier_kg": 0, "volume_beton_m3": 0, "positions": [{"pos": 0, "armature": "", "longueur_m": 0, "forme": ""}]}`;
 }
 
-export function promptExtractDetail(texte: string): string {
+export function promptExtractDetail(texte) {
   return `Extrais les regles de ferraillage du detail :
 
 TEXTE :
@@ -96,29 +97,23 @@ Format :
 }`;
 }
 
-export function promptAssembleCarnet(args: {
-  metadonnees: string;
-  legendes: string;
-  details: string;
-  fiches: string;
-  comptages: string;
-}): string {
+export function promptAssembleCarnet({ metadonnees, legendes, details, fiches, comptages }) {
   return `Produis le Carnet BA final a partir des donnees suivantes.
 
 METADONNEES :
-${args.metadonnees}
+${metadonnees}
 
 LEGENDES :
-${args.legendes}
+${legendes}
 
 DETAILS :
-${args.details}
+${details}
 
 FICHES DE FABRICATION :
-${args.fiches}
+${fiches}
 
 COMPTAGES VISUELS :
-${args.comptages}
+${comptages}
 
 MASSES LINEIQUES (kg/m) : HA5=0.154, HA6=0.222, HA8=0.395, HA10=0.617, HA12=0.888, HA14=1.208, HA16=1.578.
 
@@ -148,5 +143,5 @@ Reponds au format JSON :
   ]
 }
 
-Les poids_total seront recalcules cote serveur. Veille a ce que poids_unitaire_kg soit coherent avec les masses lineiques.`;
+Les poids_total seront recalcules cote client. Veille a ce que poids_unitaire_kg soit coherent avec les masses lineiques.`;
 }

@@ -5,20 +5,25 @@ assets statiques) lie au depot GitHub. Deux voies de deploiement sont
 disponibles : **Workers Builds** (recommande, pilote depuis le dashboard
 Cloudflare) ou **GitHub Actions** (utile pour un contrôle CI supplementaire).
 
-## Architecture
+## Architecture (100% cote navigateur)
 
 ```
-Navigateur                  Cloudflare Worker                OpenRouter
-(PDF -> texte + PNG)  --->  /api/process             --->   Gemini + Claude
-                            (orchestration LLM)
+Navigateur                                        OpenRouter
+(PDF -> texte + PNG -> orchestration LLM)  --->  Gemini 3.1 Pro
 ```
 
 - Le frontend (`public/`) est servi par Workers Static Assets.
-- Le Worker (`src/worker.ts`) expose `/api/process` et delegue au moteur
-  Python equivalent porte en TypeScript (`src/calculation.ts`, `src/pipeline.ts`).
-- La clef OpenRouter peut etre transmise :
-  - par le client via l'en-tete `X-OpenRouter-Key` (champ du formulaire), ou
-  - definie comme secret Worker (`wrangler secret put OPENROUTER_API_KEY`).
+- Le Worker (`src/worker.ts`) sert uniquement les assets statiques — aucune
+  logique IA cote serveur.
+- Le pipeline (pdf.js + extraction + vision + assemblage) s'execute
+  entierement dans le navigateur, dans `public/lib/`.
+- La cle OpenRouter est saisie par l'utilisateur dans l'interface et reste
+  dans son navigateur ; elle est envoyee directement a `openrouter.ai`.
+- Tous les appels IA utilisent **`google/gemini-3.1-pro-preview`**
+  (multimodal : texte + image).
+
+Avantage : aucune limite de sous-requetes Cloudflare, l'outil peut etre
+teste a volonte sur le plan gratuit.
 
 ## Option 1 : Workers Builds (Cloudflare Dashboard) — recommandee
 
@@ -34,11 +39,9 @@ a gerer.
    - *Build command* : `npm install && npx tsc --noEmit`
    - *Deploy command* : `npx wrangler deploy`
    - *Root directory* : `/`
-4. **Secrets runtime** (Settings -> Variables & Secrets -> *Secret*) :
-   - `OPENROUTER_API_KEY` : clef OpenRouter (facultatif, peut aussi etre
-     fournie cote client).
+4. Aucun secret runtime requis (la cle API est saisie cote client).
 5. Cliquer **Create & Deploy**. Cloudflare detecte `wrangler.toml`,
-   construit le Worker et publie sur `https://fimurex-ia-agent.<subdomain>.workers.dev`.
+   construit le Worker et publie sur `https://iafimurex.<subdomain>.workers.dev`.
 
 ## Option 2 : GitHub Actions
 
@@ -72,12 +75,3 @@ pip install -r requirements.txt
 export OPENROUTER_API_KEY=sk-or-v1-...
 python -m fimurex_agent etude_ba.pdf -o output/
 ```
-
-## Variables / secrets
-
-| Nom                  | Type    | Usage                                   |
-| -------------------- | ------- | --------------------------------------- |
-| OPENROUTER_API_KEY   | secret  | Clef OpenRouter (Worker ou CLI)         |
-| OPENROUTER_BASE_URL  | var     | Par defaut `https://openrouter.ai/api/v1` |
-| MODEL_VISION         | var     | `google/gemini-2.5-pro`                 |
-| MODEL_REASONING      | var     | `anthropic/claude-opus-4.6`             |

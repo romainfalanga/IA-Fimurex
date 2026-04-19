@@ -13,11 +13,6 @@ not_found_handling = "single-page-application"
 [observability]
 enabled = true
 
-# Variables de configuration publiques.
-[vars]
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-MODEL_VISION = "google/gemini-2.5-pro"
-MODEL_REASONING = "anthropic/claude-opus-4.6"
-
-# La clef API est transmise par le client dans l'en-tete Authorization ou
-# injectee en secret via : `wrangler secret put OPENROUTER_API_KEY`.
+# Aucune variable cote Worker : le traitement IA se fait 100% cote navigateur.
+# La cle API OpenRouter est saisie par l'utilisateur dans l'interface et
+# utilisee directement depuis le navigateur (appels fetch a openrouter.ai).

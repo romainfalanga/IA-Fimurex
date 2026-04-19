@@ -1,7 +1,9 @@
 // Fimurex AI Agent - Dashboard client.
-// Pre-traite le PDF dans le navigateur (extraction de texte + rendu PNG de
-// chaque page) puis consomme le flux SSE du Worker pour afficher le
-// traitement en temps reel.
+// 100% cote navigateur : pre-traite le PDF (pdf.js), orchestre la pipeline
+// et appelle OpenRouter directement. Aucun Worker intermediaire, aucune
+// limite de sous-requetes.
+
+import { runPipeline } from "./lib/pipeline.js";
 
 // ---- PDF.js setup (single import) ----
 const pdfjsLib = await import(
@@ -332,55 +334,14 @@ function setPageStatus(index, status) {
   statusEl.className = `page-status ${status}`;
 }
 
-// ---- SSE consumer ----
+// ---- Pipeline runner (100% client-side) ----
 async function streamPipeline(pages, apiKey) {
-  const headers = { "Content-Type": "application/json" };
-  if (apiKey) headers["X-OpenRouter-Key"] = apiKey;
-
-  const response = await fetch("/api/process-stream", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ pages }),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`${response.status} ${response.statusText} - ${errText}`);
+  if (!apiKey) {
+    throw new Error(
+      "Cle API OpenRouter manquante. Saisissez-la dans le panneau de gauche.",
+    );
   }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const event = JSON.parse(line.slice(6));
-          handlePipelineEvent(event);
-        } catch {
-          // Skip malformed JSON
-        }
-      }
-    }
-  }
-
-  // Process remaining buffer
-  if (buffer.startsWith("data: ")) {
-    try {
-      const event = JSON.parse(buffer.slice(6));
-      handlePipelineEvent(event);
-    } catch {
-      // Skip
-    }
-  }
+  await runPipeline({ apiKey, pages }, handlePipelineEvent);
 }
 
 function handlePipelineEvent(event) {
@@ -842,7 +803,7 @@ function resetUI() {
 
   // Reset assembly status
   els.assemblyStatus.innerHTML =
-    '<div class="spinner"></div><span>Claude assemble le carnet a partir de toutes les donnees...</span>';
+    '<div class="spinner"></div><span>Gemini assemble le carnet a partir de toutes les donnees...</span>';
 
   // Reset all stage statuses
   ["ingestion", "extraction", "vision", "assembly", "result"].forEach((s) => {
@@ -877,10 +838,10 @@ els.btnProcess.addEventListener("click", async () => {
       "system",
     );
 
-    // Phase 2-5: Stream from Worker
+    // Phase 2-5: Run pipeline directly in the browser
     addLog(
       "SYSTEM",
-      `Envoi de ${pages.length} pages au Worker pour traitement IA...`,
+      `Lancement du pipeline IA sur ${pages.length} pages...`,
       "system",
     );
     await streamPipeline(pages, els.apiKey.value.trim());
