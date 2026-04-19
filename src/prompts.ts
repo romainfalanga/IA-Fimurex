@@ -10,13 +10,13 @@ export const SYSTEM_VISION =
   "les elements structurels sur les plans, tu comptes et tu mesures en " +
   "utilisant l'echelle du cartouche. Tu reponds TOUJOURS en JSON valide.";
 
-export function promptVisionPlan(niveau: string, legende: string, echelle: string): string {
+export function promptVisionPlan(niveau: string, legende: string): string {
   return `Analyse l'image ci-jointe qui est un plan de coffrage de niveau "${niveau}".
 
 Legende du plan :
 ${legende}
 
-Echelle : ${echelle}
+Lis l'echelle dans le cartouche du plan. Elle est generalement indiquee sous la forme "Echelle : 1/XX" ou "Ech. 1/XX". Si tu ne la trouves pas, utilise 1/75 par defaut.
 
 Identifie et compte :
 1. Elements ponctuels : CV, Pot.1, Pot.2, SI1, SI2, Chev.1, Att_CV.
@@ -27,6 +27,7 @@ Identifie et compte :
 Reponds UNIQUEMENT en JSON selon le schema :
 {
   "niveau": "${niveau}",
+  "echelle_detectee": "1/XX",
   "elements_ponctuels": {"CV": 0, "Pot.1": 0, "Pot.2": 0, "SI1": 0, "SI2": 0, "Chev.1": 0, "Att_CV": 0},
   "elements_lineaires": {"SF50": {"longueur_totale_m": 0, "nb_unites_6m": 0}, "SF50e": {"longueur_totale_m": 0, "nb_unites_6m": 0}, "CH": {"longueur_totale_m": 0, "nb_unites_6m": 0}, "CP": {"longueur_totale_m": 0, "nb_unites_6m": 0}, "Lt1": 0, "Lt2": 0, "Lt2*": 0, "Lt3": 0, "Lt4": 0, "Lt4*": 0, "Ltvs": 0, "Ptre_01": 0, "Ptre_02": 0},
   "angles": {"angles_L": 0, "angles_T": 0, "jonctions_linteau_CV": 0},
