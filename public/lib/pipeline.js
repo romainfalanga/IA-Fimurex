@@ -1,45 +1,45 @@
-// Pipeline 100% client-side : orchestre les appels OpenRouter directement
-// depuis le navigateur. Aucun Worker intermediaire, aucune limite de
-// sous-requetes. Emet des evenements via un callback pour alimenter le
-// dashboard en temps reel.
+// ==========================================================================
+// Pipeline 100% client-side avec architecture skill-based
+// ==========================================================================
+// Etapes sequentielles garantissant la coherence des donnees :
+//   1. Extraction textuelle (IA) — toutes les pages en parallele
+//   2. Vision (IA) — APRES extraction, utilise les legendes extraites
+//   3. Assemblage (CODE) — deterministe, aucun appel IA
+//   4. Validation (CODE) — controles de coherence
+//
+// Le modele (Gemini 2.0 Flash) ne fait QUE lire et structurer. Tous les
+// poids sont calcules par le moteur deterministe (calculation.js).
+// ==========================================================================
 
-import { finalizeCarnet } from "./calculation.js";
-import { chat, parseJson, MODEL } from "./openrouter.js";
+import { MODEL } from "./openrouter.js";
 import {
-  SYSTEM_REASONING,
-  SYSTEM_VISION,
-  promptAssembleCarnet,
-  promptExtractDetail,
-  promptExtractFiche,
-  promptExtractHypotheses,
-  promptExtractLegende,
-  promptExtractPageGarde,
-  promptVisionPlan,
-} from "./prompts.js";
+  extractPageGarde,
+  extractHypotheses,
+  extractLegende,
+  extractFiche,
+  extractDetail,
+} from "./skills/extraction.js";
+import { analyzePlan } from "./skills/vision.js";
+import { assembleCarnet } from "./skills/assembly.js";
+import { validateCarnet } from "./skills/validation.js";
 
 export async function runPipeline({ apiKey, pages }, emit) {
   const t0 = Date.now();
-  const emitEvent = (type, data) =>
-    emit({ type, timestamp: Date.now() - t0, data });
+  const ev = (type, data) => emit({ type, timestamp: Date.now() - t0, data });
 
-  const totalPages = pages.length;
   const planPages = pages.filter((p) => p.category === "PLAN_COFFRAGE");
   const extractablePages = pages.filter((p) => p.category !== "ANNEXE");
 
-  emitEvent("pipeline_start", {
-    totalPages,
+  ev("pipeline_start", {
+    totalPages: pages.length,
     planPages: planPages.length,
     extractablePages: extractablePages.length,
     model: MODEL,
-    categories: pages.map((p) => ({
-      index: p.index,
-      category: p.category,
-      niveau: p.niveau ?? null,
-    })),
   });
 
+  // Emit page classifications
   for (const page of pages) {
-    emitEvent("page_classified", {
+    ev("page_classified", {
       pageIndex: page.index,
       category: page.category,
       niveau: page.niveau ?? null,
@@ -48,239 +48,194 @@ export async function runPipeline({ apiKey, pages }, emit) {
     });
   }
 
-  // ---- Module 2 : extraction textuelle (Gemini) ----
+  // ==================================================================
+  // ETAPE 1 : Extraction textuelle (IA, en parallele)
+  // ==================================================================
   const metadonnees = {};
   const hypotheses = {};
   const legendes = {};
   const fiches = {};
   const details = {};
 
-  emitEvent("thinking", {
-    message: `Demarrage de l'extraction textuelle de ${extractablePages.length} pages avec ${MODEL}.`,
+  ev("thinking", {
+    message: `Extraction textuelle de ${extractablePages.length} pages avec ${MODEL} (modele economique $0.10/$0.40 par M tokens).`,
     stage: "extraction",
   });
 
-  await Promise.all(
+  const extractionResults = await Promise.allSettled(
     pages.map(async (page) => {
-      const prompt = textPromptFor(page);
-      if (!prompt) return;
+      const extractor = getExtractor(page.category);
+      if (!extractor) return null;
 
-      const categoryLabel = categoryFriendlyName(page.category);
-      emitEvent("extraction_start", {
+      const label = categoryLabel(page.category);
+      ev("extraction_start", {
         pageIndex: page.index,
         category: page.category,
-        categoryLabel,
+        categoryLabel: label,
         niveau: page.niveau ?? null,
       });
 
-      emitEvent("thinking", {
-        message: `Analyse de la page ${page.index + 1} (${categoryLabel}${page.niveau ? " - " + page.niveau : ""}) avec ${MODEL}...`,
+      ev("thinking", {
+        message: `Lecture de la page ${page.index + 1} (${label}${page.niveau ? " - " + page.niveau : ""})...`,
         stage: "extraction",
         pageIndex: page.index,
       });
 
-      let parsed;
-      try {
-        const raw = await chat({
-          apiKey,
-          system: SYSTEM_REASONING,
-          user: prompt,
-          jsonResponse: true,
-        });
-        try {
-          parsed = parseJson(raw);
-        } catch {
-          parsed = { _raw: raw };
-        }
-      } catch (err) {
-        parsed = { _error: err.message };
-      }
+      const result = await extractor(apiKey, page.text);
 
-      switch (page.category) {
-        case "PAGE_GARDE":
-          Object.assign(metadonnees, parsed);
-          break;
-        case "HYPOTHESES":
-          Object.assign(hypotheses, parsed);
-          break;
-        case "PLAN_COFFRAGE": {
-          const niveau = parsed.niveau || page.niveau || `page_${page.index}`;
-          legendes[niveau] = parsed;
-          break;
-        }
-        case "FICHE_FABRICATION": {
-          const repere = String(parsed.repere || page.repere || "?").replace(/\s+/g, "");
-          const niveau = parsed.niveau || page.niveau || "?";
-          fiches[`${repere}@${niveau}`] = parsed;
-          break;
-        }
-        case "DETAIL": {
-          const element = parsed.element || `detail_${page.index}`;
-          details[element] = parsed;
-          break;
-        }
-      }
+      // Store result with deduplication handling
+      storeExtraction(page, result, metadonnees, hypotheses, legendes, fiches, details);
 
-      emitEvent("extraction_done", {
+      ev("extraction_done", {
         pageIndex: page.index,
         category: page.category,
-        categoryLabel,
+        categoryLabel: label,
         niveau: page.niveau ?? null,
-        result: parsed,
+        result,
       });
+
+      return result;
     }),
   );
 
-  emitEvent("thinking", {
-    message: `Extraction textuelle terminee. Metadonnees : ${Object.keys(metadonnees).length} champs. Legendes : ${Object.keys(legendes).length} niveaux. Fiches : ${Object.keys(fiches).length}. Details : ${Object.keys(details).length}.`,
+  // Count extraction successes/failures
+  const extractOk = extractionResults.filter((r) => r.status === "fulfilled" && r.value).length;
+  const extractFail = extractionResults.filter((r) => r.status === "rejected").length;
+
+  ev("thinking", {
+    message: `Extraction terminee : ${extractOk} reussies, ${extractFail} echouees. ` +
+      `Legendes : ${Object.keys(legendes).length} niveaux. Fiches : ${Object.keys(fiches).length}. ` +
+      `Details : ${Object.keys(details).length}.`,
     stage: "extraction",
   });
 
-  // ---- Module 3 : analyse visuelle (Gemini) ----
+  // ==================================================================
+  // ETAPE 2 : Analyse visuelle (IA, APRES extraction pour avoir les legendes)
+  // ==================================================================
   const vision = {};
 
   if (planPages.length > 0) {
-    emitEvent("thinking", {
-      message: `Demarrage de l'analyse visuelle de ${planPages.length} plan(s) de coffrage avec ${MODEL}. L'echelle sera auto-detectee depuis le cartouche de chaque plan.`,
+    ev("thinking", {
+      message: `Analyse visuelle de ${planPages.length} plan(s) avec ${MODEL}. ` +
+        `Les legendes extraites sont passees au modele pour guider le comptage.`,
       stage: "vision",
     });
+
+    await Promise.allSettled(
+      pages.map(async (page) => {
+        if (page.category !== "PLAN_COFFRAGE" || !page.imageDataUrl) return;
+        const niveau = page.niveau || `page_${page.index}`;
+        const legende = legendes[niveau] ?? null;
+
+        ev("vision_start", { pageIndex: page.index, niveau });
+        ev("thinking", {
+          message: `Envoi du plan "${niveau}" (page ${page.index + 1}) a ${MODEL}` +
+            (legende ? ` avec ${legende.armatures?.length ?? 0} reperes de legende.` : " (pas de legende extraite)."),
+          stage: "vision",
+          pageIndex: page.index,
+        });
+
+        try {
+          const result = await analyzePlan(apiKey, page.imageDataUrl, niveau, legende);
+          vision[niveau] = result;
+
+          const echelle = result.echelle_detectee || "non detectee";
+          const confiance = result.confiance_echelle || "?";
+          ev("vision_done", {
+            pageIndex: page.index,
+            niveau,
+            echelleDetectee: echelle,
+            confianceEchelle: confiance,
+            result,
+          });
+          ev("thinking", {
+            message: `Vision "${niveau}" — echelle ${echelle} (confiance: ${confiance}). ` +
+              `Elements : ${summarizeCounts(result)}.`,
+            stage: "vision",
+            pageIndex: page.index,
+          });
+        } catch (err) {
+          vision[niveau] = { _error: err.message };
+          ev("thinking", {
+            message: `Erreur vision "${niveau}" : ${err.message}`,
+            stage: "vision",
+            pageIndex: page.index,
+          });
+        }
+      }),
+    );
   }
 
-  await Promise.all(
-    pages.map(async (page) => {
-      if (page.category !== "PLAN_COFFRAGE" || !page.imageDataUrl) return;
-      const niveau = page.niveau || `page_${page.index}`;
-      const legendeTxt = JSON.stringify(legendes[niveau] ?? {}, null, 2);
-      const prompt = promptVisionPlan(niveau, legendeTxt);
-
-      emitEvent("vision_start", { pageIndex: page.index, niveau });
-      emitEvent("thinking", {
-        message: `Envoi du plan "${niveau}" (page ${page.index + 1}) a ${MODEL}. Le modele va lire l'echelle dans le cartouche, identifier et compter les elements structurels.`,
-        stage: "vision",
-        pageIndex: page.index,
-      });
-
-      let parsed;
-      try {
-        const raw = await chat({
-          apiKey,
-          system: SYSTEM_VISION,
-          user: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: page.imageDataUrl } },
-          ],
-          jsonResponse: true,
-        });
-        try {
-          parsed = parseJson(raw);
-        } catch {
-          parsed = { _raw: raw };
-        }
-      } catch (err) {
-        parsed = { _error: err.message };
-      }
-
-      vision[niveau] = parsed;
-      const echelleDetectee = parsed.echelle_detectee || "non detectee";
-
-      emitEvent("vision_done", {
-        pageIndex: page.index,
-        niveau,
-        echelleDetectee,
-        result: parsed,
-      });
-      emitEvent("thinking", {
-        message: `Vision terminee pour "${niveau}" — echelle detectee : ${echelleDetectee}. Elements : ${summarizeVisionResult(parsed)}.`,
-        stage: "vision",
-        pageIndex: page.index,
-      });
-    }),
-  );
-
-  // ---- Module 4 : assemblage (Gemini) ----
-  emitEvent("assembly_start", {
-    message: "Assemblage du Carnet BA final a partir de toutes les donnees extraites et des comptages visuels.",
+  // ==================================================================
+  // ETAPE 3 : Assemblage deterministe (CODE, aucun appel IA)
+  // ==================================================================
+  ev("assembly_start", {
+    message: "Assemblage deterministe du Carnet BA (moteur de calcul, aucun appel IA).",
   });
 
-  emitEvent("thinking", {
-    message: `Envoi de toutes les donnees a ${MODEL} pour assembler le Carnet BA. ${Object.keys(metadonnees).length} champs metadonnees, ${Object.keys(legendes).length} legendes, ${Object.keys(details).length} details, ${Object.keys(fiches).length} fiches, ${Object.keys(vision).length} comptages visuels.`,
+  ev("thinking", {
+    message: `Assemblage en cours : ${Object.keys(legendes).length} legendes, ` +
+      `${Object.keys(details).length} details, ${Object.keys(fiches).length} fiches, ` +
+      `${Object.keys(vision).length} comptages visuels. ` +
+      `Les poids sont calcules par le moteur deterministe (masses lineiques normatives).`,
     stage: "assembly",
   });
 
-  const assembleRaw = await chat({
-    apiKey,
-    system: SYSTEM_REASONING,
-    user: promptAssembleCarnet({
-      metadonnees: JSON.stringify(metadonnees, null, 2),
-      legendes: JSON.stringify(legendes, null, 2),
-      details: JSON.stringify(details, null, 2),
-      fiches: JSON.stringify(fiches, null, 2),
-      comptages: JSON.stringify(vision, null, 2),
-    }),
-    jsonResponse: true,
-  });
+  const carnet = assembleCarnet({ metadonnees, legendes, details, fiches, vision, hypotheses });
 
-  const assembled = parseJson(assembleRaw);
-  const entete = assembled.entete ?? {
-    dossier: metadonnees.dossier ?? "",
-    chantier: metadonnees.chantier ?? "",
-    commune: metadonnees.commune ?? "",
-    zone_sismique: metadonnees.zone_sismique ?? "",
-  };
-
-  const carnet = finalizeCarnet({
-    entete,
-    sections: assembled.sections ?? [],
-  });
-
-  emitEvent("assembly_done", {
+  ev("assembly_done", {
     carnet,
     nbSections: carnet.sections.length,
     nbLignes: carnet.sections.reduce((a, s) => a + s.lignes.length, 0),
     totalKg: carnet.total_general_kg,
   });
-  emitEvent("thinking", {
-    message: `Carnet assemble : ${carnet.sections.length} sections, ${carnet.sections.reduce((a, s) => a + s.lignes.length, 0)} lignes, total general ${carnet.total_general_kg.toFixed(2)} kg.`,
+
+  ev("thinking", {
+    message: `Carnet assemble : ${carnet.sections.length} sections, ` +
+      `${carnet.sections.reduce((a, s) => a + s.lignes.length, 0)} lignes, ` +
+      `total ${carnet.total_general_kg.toFixed(2)} kg.`,
     stage: "assembly",
   });
 
-  // ---- Validation sommaire ----
-  const anomalies = [];
-  if (carnet.sections.length === 0) anomalies.push("Carnet vide");
-  for (const s of carnet.sections) {
-    for (const l of s.lignes) {
-      if (l.poids_unitaire_kg <= 0 || l.quantite <= 0) {
-        anomalies.push(`Ligne invalide (${s.section} / ${l.designation})`);
-      }
-    }
-  }
-
-  emitEvent("validation_done", {
-    anomalies,
-    nbAnomalies: anomalies.length,
-  });
-  emitEvent("thinking", {
-    message:
-      anomalies.length > 0
-        ? `Validation : ${anomalies.length} anomalie(s) detectee(s) : ${anomalies.join(", ")}.`
-        : "Validation terminee sans anomalie.",
-    stage: "validation",
-  });
-
-  const result = {
-    carnet,
-    extracted: {
-      metadonnees,
-      hypotheses,
-      legendes_par_niveau: legendes,
-      fiches,
-      details,
-    },
-    vision,
-    anomalies,
+  // ==================================================================
+  // ETAPE 4 : Validation (CODE)
+  // ==================================================================
+  const extracted = {
+    metadonnees,
+    hypotheses,
+    legendes_par_niveau: legendes,
+    fiches,
+    details,
   };
 
-  emitEvent("pipeline_done", {
+  const { anomalies, warnings } = validateCarnet(carnet, extracted, vision);
+
+  ev("validation_done", {
+    anomalies,
+    warnings,
+    nbAnomalies: anomalies.length,
+    nbWarnings: warnings.length,
+  });
+
+  if (anomalies.length > 0 || warnings.length > 0) {
+    ev("thinking", {
+      message: `Validation : ${anomalies.length} anomalie(s), ${warnings.length} avertissement(s). ` +
+        (anomalies.length > 0 ? `Anomalies : ${anomalies.slice(0, 3).join(" | ")}` : ""),
+      stage: "validation",
+    });
+  } else {
+    ev("thinking", {
+      message: "Validation terminee sans anomalie ni avertissement.",
+      stage: "validation",
+    });
+  }
+
+  // ==================================================================
+  // RESULTAT FINAL
+  // ==================================================================
+  const result = { carnet, extracted, vision, anomalies, warnings };
+
+  ev("pipeline_done", {
     result,
     durationMs: Date.now() - t0,
   });
@@ -290,24 +245,68 @@ export async function runPipeline({ apiKey, pages }, emit) {
 
 // ---- Helpers ----
 
-function textPromptFor(page) {
-  switch (page.category) {
-    case "PAGE_GARDE":
-      return promptExtractPageGarde(page.text);
-    case "HYPOTHESES":
-      return promptExtractHypotheses(page.text);
-    case "PLAN_COFFRAGE":
-      return promptExtractLegende(page.text);
-    case "FICHE_FABRICATION":
-      return promptExtractFiche(page.text);
-    case "DETAIL":
-      return promptExtractDetail(page.text);
-    default:
-      return null;
+function getExtractor(category) {
+  switch (category) {
+    case "PAGE_GARDE": return extractPageGarde;
+    case "HYPOTHESES": return extractHypotheses;
+    case "PLAN_COFFRAGE": return extractLegende;
+    case "FICHE_FABRICATION": return extractFiche;
+    case "DETAIL": return extractDetail;
+    default: return null;
   }
 }
 
-function categoryFriendlyName(category) {
+function storeExtraction(page, result, metadonnees, hypotheses, legendes, fiches, details) {
+  if (!result) return;
+  switch (page.category) {
+    case "PAGE_GARDE":
+      Object.assign(metadonnees, result);
+      break;
+    case "HYPOTHESES":
+      Object.assign(hypotheses, result);
+      break;
+    case "PLAN_COFFRAGE": {
+      const niveau = result.niveau || page.niveau || `page_${page.index}`;
+      if (legendes[niveau]) {
+        // Merge : concatener les armatures au lieu d'ecraser
+        const existing = legendes[niveau].armatures || [];
+        const incoming = result.armatures || [];
+        legendes[niveau] = {
+          ...legendes[niveau],
+          ...result,
+          armatures: mergeArmatures(existing, incoming),
+        };
+      } else {
+        legendes[niveau] = result;
+      }
+      break;
+    }
+    case "FICHE_FABRICATION": {
+      const repere = String(result.repere || page.repere || "?").replace(/\s+/g, "");
+      const niveau = result.niveau || page.niveau || "?";
+      fiches[`${repere}@${niveau}`] = result;
+      break;
+    }
+    case "DETAIL": {
+      const element = result.element || `detail_${page.index}`;
+      details[element] = result;
+      break;
+    }
+  }
+}
+
+function mergeArmatures(existing, incoming) {
+  const map = new Map();
+  for (const a of existing) {
+    if (a.repere) map.set(a.repere, a);
+  }
+  for (const a of incoming) {
+    if (a.repere && !map.has(a.repere)) map.set(a.repere, a);
+  }
+  return Array.from(map.values());
+}
+
+function categoryLabel(category) {
   const map = {
     PAGE_GARDE: "Page de garde",
     PLAN_COFFRAGE: "Plan de coffrage",
@@ -319,21 +318,17 @@ function categoryFriendlyName(category) {
   return map[category] || category;
 }
 
-function summarizeVisionResult(result) {
+function summarizeCounts(v) {
   const parts = [];
-  const ponctuels = result.elements_ponctuels;
-  if (ponctuels) {
-    const nonZero = Object.entries(ponctuels)
-      .filter(([, v]) => v > 0)
-      .map(([k, v]) => `${k}=${v}`);
-    if (nonZero.length) parts.push(`ponctuels: ${nonZero.join(", ")}`);
+  const p = v.elements_ponctuels;
+  if (p) {
+    const nz = Object.entries(p).filter(([, n]) => n > 0).map(([k, n]) => `${k}=${n}`);
+    if (nz.length) parts.push(nz.join(", "));
   }
-  const angles = result.angles;
-  if (angles) {
-    const nonZero = Object.entries(angles)
-      .filter(([, v]) => v > 0)
-      .map(([k, v]) => `${k}=${v}`);
-    if (nonZero.length) parts.push(`angles: ${nonZero.join(", ")}`);
+  const a = v.angles;
+  if (a) {
+    const nz = Object.entries(a).filter(([, n]) => n > 0).map(([k, n]) => `${k}=${n}`);
+    if (nz.length) parts.push(nz.join(", "));
   }
-  return parts.length > 0 ? parts.join(" | ") : "aucun element detecte";
+  return parts.length > 0 ? parts.join(" | ") : "aucun element";
 }

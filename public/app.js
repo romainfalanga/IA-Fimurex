@@ -530,13 +530,15 @@ function handleAssemblyDone(data) {
 }
 
 function handleValidationDone(data) {
-  if (data.nbAnomalies > 0) {
+  const nbA = data.nbAnomalies || 0;
+  const nbW = data.nbWarnings || 0;
+  if (nbA > 0 || nbW > 0) {
     addLog(
       "VALID",
-      `${data.nbAnomalies} anomalie(s) detectee(s).`,
+      `${nbA} anomalie(s), ${nbW} avertissement(s).`,
       "validation",
     );
-    renderAnomalies(data.anomalies);
+    renderAnomalies([...(data.anomalies || []), ...(data.warnings || [])]);
   } else {
     addLog("VALID", "Aucune anomalie detectee.", "validation");
   }
@@ -803,7 +805,7 @@ function resetUI() {
 
   // Reset assembly status
   els.assemblyStatus.innerHTML =
-    '<div class="spinner"></div><span>Gemini assemble le carnet a partir de toutes les donnees...</span>';
+    '<div class="spinner"></div><span>Assemblage deterministe du carnet (moteur de calcul)...</span>';
 
   // Reset all stage statuses
   ["ingestion", "extraction", "vision", "assembly", "result"].forEach((s) => {
