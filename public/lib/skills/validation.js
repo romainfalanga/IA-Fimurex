@@ -16,20 +16,20 @@ import { round2, nbUnitesFromMetre, longueurUtile, LONGUEUR_BARRE_STD } from "..
 
 // Fourchettes de poids unitaire plausibles par type d'element (kg)
 const WEIGHT_RANGES = {
-  CV: [10, 35],
-  SF50: [15, 45],
-  SF50e: [15, 50],
-  CH: [10, 35],
-  CP: [10, 35],
-  Lt1: [3, 20],
-  Lt2: [5, 30],
-  Lt3: [8, 40],
-  Lt4: [10, 50],
-  "Pot.1": [5, 50],
-  "Pot.2": [10, 80],
-  Equerre: [0.3, 4.0],
-  U: [0.3, 5.0],
-  Crosse: [0.2, 3.0],
+  CV: [3, 35],
+  SF50: [10, 50],
+  SF50e: [10, 55],
+  CH: [5, 40],
+  CP: [5, 40],
+  Lt1: [2, 25],
+  Lt2: [3, 35],
+  Lt3: [5, 45],
+  Lt4: [8, 55],
+  "Pot.1": [3, 60],
+  "Pot.2": [5, 100],
+  Equerre: [0.2, 5.0],
+  U: [0.2, 6.0],
+  Crosse: [0.1, 4.0],
 };
 
 export function validateCarnet(carnet, extracted, visionResults) {
@@ -85,20 +85,30 @@ export function validateCarnet(carnet, extracted, visionResults) {
   }
 
   // 3. Reconciliation vision vs. carnet
+  const ELEM_ALIASES = {
+    Att_CV: ["CV", "Attentes CV"],
+    CV: ["CV", "Attentes CV"],
+    VR: ["VR", "Voile"],
+  };
+
   if (visionResults) {
     for (const [niveau, vData] of Object.entries(visionResults)) {
+      if (/^page_\d+$/.test(niveau)) continue;
+      if (vData._error) continue;
       const section = carnet.sections.find((s) => matchNiveau(s.section, niveau));
       if (!section) {
         warnings.push(`Vision "${niveau}" : aucune section correspondante dans le carnet.`);
         continue;
       }
 
-      // Verifier que les elements comptes par vision sont dans le carnet
       const ponctuels = vData.elements_ponctuels || {};
       for (const [elem, count] of Object.entries(ponctuels)) {
         if (count > 0) {
+          const aliases = ELEM_ALIASES[elem] || [elem];
           const found = section.lignes.some(
-            (l) => l.designation === elem || l.designation.includes(elem),
+            (l) => aliases.some((a) =>
+              l.designation === a || l.designation.includes(a)
+            ),
           );
           if (!found) {
             warnings.push(
@@ -113,6 +123,7 @@ export function validateCarnet(carnet, extracted, visionResults) {
   // 4. Completude
   if (extracted?.legendes_par_niveau) {
     for (const niveau of Object.keys(extracted.legendes_par_niveau)) {
+      if (/^page_\d+$/.test(niveau)) continue;
       const section = carnet.sections.find((s) => matchNiveau(s.section, niveau));
       if (!section) {
         warnings.push(

@@ -23,6 +23,23 @@ import { analyzePlan } from "./skills/vision.js";
 import { assembleCarnet } from "./skills/assembly.js";
 import { validateCarnet } from "./skills/validation.js";
 
+// Normalise les noms de niveaux retournes par l'IA vers les noms canoniques
+function normalizeNiveau(raw) {
+  if (!raw || /^page_\d+$/.test(raw)) return raw;
+  const s = raw.toLowerCase().replace(/\s+/g, " ").trim();
+  if (/haut.*(rdc|rez[\s-]*de[\s-]*chauss)/.test(s)) return "Haut RDC";
+  if (/haut.*r\+?2/.test(s)) return "Haut R+2";
+  if (/haut.*r\+?1/.test(s)) return "Haut R+1";
+  if (/haut.*(vide[\s-]*sanitaire|vs|v\.?s\.?)/.test(s)) return "Haut VS";
+  if (/vide[\s-]*sanitaire/.test(s)) return "Haut VS";
+  if (/fondation/.test(s)) return "Fondations";
+  if (/r\+2/.test(s)) return "Haut R+2";
+  if (/r\+1/.test(s)) return "Haut R+1";
+  if (/\brdc\b/.test(s) && !/r\+/.test(s)) return "Haut RDC";
+  if (/\bvs\b/.test(s) || /\bv\.?s\.?\b/.test(s)) return "Haut VS";
+  return raw;
+}
+
 export async function runPipeline({ apiKey, pages }, emit) {
   const t0 = Date.now();
   const ev = (type, data) => emit({ type, timestamp: Date.now() - t0, data });
@@ -125,7 +142,7 @@ export async function runPipeline({ apiKey, pages }, emit) {
     await Promise.allSettled(
       pages.map(async (page) => {
         if (page.category !== "PLAN_COFFRAGE" || !page.imageDataUrl) return;
-        const niveau = page.niveau || `page_${page.index}`;
+        const niveau = normalizeNiveau(page.niveau || `page_${page.index}`);
         const legende = legendes[niveau] ?? null;
 
         ev("vision_start", { pageIndex: page.index, niveau });
@@ -138,7 +155,13 @@ export async function runPipeline({ apiKey, pages }, emit) {
 
         try {
           const result = await analyzePlan(apiKey, page.imageDataUrl, niveau, legende);
-          vision[niveau] = result;
+          const canonicalNiveau = normalizeNiveau(result.niveau || niveau);
+          result.niveau = canonicalNiveau;
+          if (vision[canonicalNiveau]) {
+            mergeVisionData(vision[canonicalNiveau], result);
+          } else {
+            vision[canonicalNiveau] = result;
+          }
 
           const echelle = result.echelle_detectee || "non detectee";
           const confiance = result.confiance_echelle || "?";
@@ -267,7 +290,8 @@ function storeExtraction(page, result, metadonnees, hypotheses, legendes, fiches
       Object.assign(hypotheses, result);
       break;
     case "PLAN_COFFRAGE": {
-      const niveau = result.niveau || page.niveau || `page_${page.index}`;
+      const niveau = normalizeNiveau(result.niveau || page.niveau || `page_${page.index}`);
+      result.niveau = niveau;
       if (legendes[niveau]) {
         // Merge : concatener les armatures au lieu d'ecraser
         const existing = legendes[niveau].armatures || [];
@@ -284,7 +308,7 @@ function storeExtraction(page, result, metadonnees, hypotheses, legendes, fiches
     }
     case "FICHE_FABRICATION": {
       const repere = String(result.repere || page.repere || "?").replace(/\s+/g, "");
-      const niveau = result.niveau || page.niveau || "?";
+      const niveau = normalizeNiveau(result.niveau || page.niveau || "?");
       fiches[`${repere}@${niveau}`] = result;
       break;
     }
@@ -332,4 +356,29 @@ function summarizeCounts(v) {
     if (nz.length) parts.push(nz.join(", "));
   }
   return parts.length > 0 ? parts.join(" | ") : "aucun element";
+}
+
+function mergeVisionData(existing, incoming) {
+  // Merge element counts by taking the max (same level seen on multiple pages)
+  for (const group of ["elements_ponctuels", "linteaux", "poutres", "angles"]) {
+    if (incoming[group]) {
+      if (!existing[group]) existing[group] = {};
+      for (const [k, v] of Object.entries(incoming[group])) {
+        const cur = Number(existing[group][k]) || 0;
+        const inc = Number(v) || 0;
+        existing[group][k] = Math.max(cur, inc);
+      }
+    }
+  }
+  // Merge linear elements by summing lengths
+  if (incoming.elements_lineaires) {
+    if (!existing.elements_lineaires) existing.elements_lineaires = {};
+    for (const [k, v] of Object.entries(incoming.elements_lineaires)) {
+      if (!existing.elements_lineaires[k]) {
+        existing.elements_lineaires[k] = { longueur_totale_m: 0 };
+      }
+      existing.elements_lineaires[k].longueur_totale_m +=
+        Number(v?.longueur_totale_m) || 0;
+    }
+  }
 }

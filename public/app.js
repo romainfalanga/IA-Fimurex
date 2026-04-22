@@ -188,23 +188,32 @@ function classifyPage(text) {
   ) {
     return "DETAIL";
   }
-  if (/(coffrage|fondations|haut\s+(vs|rdc|r\+1))/.test(lower)) {
+  if (
+    /(coffrage|fondations|haut\s+(vs|rdc|r\+\d)|vide[\s-]*sanitaire|\br\+\d\b)/.test(lower) ||
+    (/\b(sf50|ch|cp|cv|lt\d)\b/.test(lower) && /\b(ech|echelle|1\s*[:/]\s*\d+)\b/.test(lower))
+  ) {
     return "PLAN_COFFRAGE";
   }
   if (lower.includes("annexe") || lower.includes("implantation"))
     return "ANNEXE";
-  return "PLAN_COFFRAGE";
+  // Pages with very little text are likely plans (image-heavy)
+  if (text.trim().length < 100) return "PLAN_COFFRAGE";
+  return "ANNEXE";
 }
 
 function detectNiveau(text) {
-  const lower = text.toLowerCase();
-  if (/\bfondations?\b/.test(lower)) return "Fondations";
-  if (/\bhaut\s*(du\s*)?(vide\s*sanitaire|vs|v\.s\.)\b/.test(lower))
-    return "Haut VS";
-  if (/\bhaut\s*(du\s*)?(rdc|rez-de-chaussee|r\.d\.c\.)\b/.test(lower))
+  const lower = text.toLowerCase().replace(/\s+/g, " ");
+  if (/\bhaut\s*(du\s*)?(rdc|rez[\s-]*de[\s-]*chauss[eé]e|r\.?d\.?c\.?)\b/.test(lower))
     return "Haut RDC";
-  if (/\bhaut\s*(du\s*)?r\+?1\b/.test(lower)) return "Haut R+1";
   if (/\bhaut\s*(du\s*)?r\+?2\b/.test(lower)) return "Haut R+2";
+  if (/\bhaut\s*(du\s*)?r\+?1\b/.test(lower)) return "Haut R+1";
+  if (/\bhaut\s*(du\s*)?(vide[\s-]*sanitaire|vs|v\.?s\.?)\b/.test(lower))
+    return "Haut VS";
+  if (/\bvide[\s-]*sanitaire\b/.test(lower)) return "Haut VS";
+  if (/\bfondations?\b/.test(lower)) return "Fondations";
+  if (/\brdc\b/.test(lower) && !/r\+/.test(lower)) return "Haut RDC";
+  if (/\br\+2\b/.test(lower)) return "Haut R+2";
+  if (/\br\+1\b/.test(lower)) return "Haut R+1";
   return null;
 }
 
