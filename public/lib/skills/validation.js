@@ -12,7 +12,7 @@
 //   const { anomalies, warnings } = validateCarnet(carnet, extracted, vision);
 // ==========================================================================
 
-import { round2 } from "../calculation.js";
+import { round2, nbUnitesFromMetre, longueurUtile, LONGUEUR_BARRE_STD } from "../calculation.js";
 
 // Fourchettes de poids unitaire plausibles par type d'element (kg)
 const WEIGHT_RANGES = {
@@ -122,7 +122,22 @@ export function validateCarnet(carnet, extracted, visionResults) {
     }
   }
 
-  // 5. Total general
+  // 5. Recouvrement consistency (metre-first)
+  for (const s of carnet.sections) {
+    for (const l of s.lignes) {
+      if (l.longueur_totale_m != null && l.longueur_unitaire_m != null) {
+        const expectedQte = nbUnitesFromMetre(l.designation, l.longueur_totale_m);
+        if (expectedQte !== l.quantite) {
+          warnings.push(
+            `[${s.section}] ${l.designation} : quantite ${l.quantite} != ` +
+            `ceil(${l.longueur_totale_m}m / ${l.longueur_unitaire_m}m) = ${expectedQte}.`,
+          );
+        }
+      }
+    }
+  }
+
+  // 6. Total general
   const expectedTotal = round2(
     carnet.sections.reduce((acc, s) => acc + s.poids_section_kg, 0),
   );

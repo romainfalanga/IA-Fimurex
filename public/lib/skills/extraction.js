@@ -9,9 +9,10 @@
 //   import { extractPageGarde, extractLegende, ... } from "./skills/extraction.js";
 //   const meta = await extractPageGarde(apiKey, pageText);
 //
-// Le modele (Gemini 2.0 Flash) ne fait QUE lire et structurer. Aucun
-// calcul de poids ne lui est demande — les poids sont calcules en code
-// par calculation.js.
+// METRE-FIRST : le modele (Gemini 2.5 Flash) extrait les DIMENSIONS
+// (longueurs, diametres, espacements) et la composition des armatures.
+// Il ne calcule JAMAIS de poids ni de quantites — c'est le code
+// (calculation.js) qui s'en charge.
 // ==========================================================================
 
 import { chat, parseJson } from "../openrouter.js";
@@ -54,6 +55,8 @@ NOTATION DES ARMATURES :
 `;
 
 const SYSTEM = `Tu es un assistant specialise dans la lecture de documents techniques de beton arme (Etudes BA) pour le groupe Fimurex. Tu extrais des donnees structurees depuis le texte brut de chaque page. Tu reponds TOUJOURS en JSON valide, sans texte avant ni apres le JSON. Si un champ est absent du texte, mets une chaine vide ou 0 selon le type.
+
+TRES IMPORTANT : tu dois uniquement EXTRAIRE les dimensions (longueurs en metres/cm/mm, diametres, espacements, sections). Tu ne dois JAMAIS calculer de poids ni de quantites. Le calcul sera fait par le code.
 
 ${GLOSSAIRE}`;
 

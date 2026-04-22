@@ -72,6 +72,30 @@ export function poidsAttentesBlocsABancher() {
   return filants + poidsU;
 }
 
+// ---- Recouvrement et metré ----
+// Les barres standard font 6m mais se chevauchent (recouvrement).
+// Longueur utile = 6m - recouvrement.
+
+export const LONGUEUR_BARRE_STD = 6.0;
+
+export const RECOUVREMENT = {
+  SF50: 0.50,
+  SF50e: 0.50,
+  CH: 0.50,
+  CP: 0.50,
+};
+
+export function longueurUtile(repere) {
+  const rec = RECOUVREMENT[repere] ?? 0;
+  return LONGUEUR_BARRE_STD - rec;
+}
+
+export function nbUnitesFromMetre(repere, longueurTotaleM) {
+  if (longueurTotaleM <= 0) return 0;
+  const utile = longueurUtile(repere);
+  return Math.ceil(longueurTotaleM / utile);
+}
+
 export function round2(x) {
   return Math.round(x * 100) / 100;
 }

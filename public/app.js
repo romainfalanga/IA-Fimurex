@@ -654,6 +654,8 @@ function renderCarnet(carnet) {
           <th>Designation</th>
           <th>Nomenclature</th>
           <th>Type</th>
+          <th>Metre (m)</th>
+          <th>Long. unit. (m)</th>
           <th>Poids/u (kg)</th>
           <th>Quantite</th>
           <th>Poids (kg)</th>
@@ -667,6 +669,8 @@ function renderCarnet(carnet) {
             <td>${esc(l.designation)}</td>
             <td>${esc(l.nomenclature)}</td>
             <td>${esc(l.type_armature)}</td>
+            <td class="num">${l.longueur_totale_m != null ? Number(l.longueur_totale_m).toFixed(2) : "-"}</td>
+            <td class="num">${l.longueur_unitaire_m != null ? Number(l.longueur_unitaire_m).toFixed(2) : "-"}</td>
             <td class="num">${Number(l.poids_unitaire_kg).toFixed(2)}</td>
             <td class="num">${l.quantite}</td>
             <td class="num">${Number(l.poids_total_kg).toFixed(2)}</td>
@@ -730,6 +734,8 @@ function carnetToCsv(carnet) {
       "Designation",
       "Nomenclature",
       "Type",
+      "Metre (m)",
+      "Long. unit. (m)",
       "Poids/u (kg)",
       "Quantite",
       "Poids (kg)",
@@ -742,6 +748,8 @@ function carnetToCsv(carnet) {
         l.designation,
         l.nomenclature,
         l.type_armature,
+        l.longueur_totale_m != null ? l.longueur_totale_m.toFixed(2) : "",
+        l.longueur_unitaire_m != null ? l.longueur_unitaire_m.toFixed(2) : "",
         l.poids_unitaire_kg.toFixed(2),
         l.quantite,
         l.poids_total_kg.toFixed(2),
@@ -750,6 +758,8 @@ function carnetToCsv(carnet) {
   }
   rows.push([
     "TOTAL GENERAL",
+    "",
+    "",
     "",
     "",
     "",

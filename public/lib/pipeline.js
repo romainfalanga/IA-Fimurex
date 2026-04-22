@@ -7,8 +7,8 @@
 //   3. Assemblage (CODE) — deterministe, aucun appel IA
 //   4. Validation (CODE) — controles de coherence
 //
-// Le modele (Gemini 2.0 Flash) ne fait QUE lire et structurer. Tous les
-// poids sont calcules par le moteur deterministe (calculation.js).
+// METRE-FIRST : l'IA mesure des longueurs et compte des elements.
+// Le code calcule les quantites (recouvrement) et les poids (masses lineiques).
 // ==========================================================================
 
 import { MODEL } from "./openrouter.js";
@@ -58,7 +58,7 @@ export async function runPipeline({ apiKey, pages }, emit) {
   const details = {};
 
   ev("thinking", {
-    message: `Extraction textuelle de ${extractablePages.length} pages avec ${MODEL} (modele economique $0.10/$0.40 par M tokens).`,
+    message: `Extraction textuelle de ${extractablePages.length} pages avec ${MODEL}. L'IA extrait les dimensions (metres/cm), le code calculera quantites et poids.`,
     stage: "extraction",
   });
 
@@ -117,7 +117,8 @@ export async function runPipeline({ apiKey, pages }, emit) {
   if (planPages.length > 0) {
     ev("thinking", {
       message: `Analyse visuelle de ${planPages.length} plan(s) avec ${MODEL}. ` +
-        `Les legendes extraites sont passees au modele pour guider le comptage.`,
+        `L'IA mesure les longueurs en metres et compte les elements (metre-first). ` +
+        `Les legendes extraites guident le comptage.`,
       stage: "vision",
     });
 
@@ -174,10 +175,10 @@ export async function runPipeline({ apiKey, pages }, emit) {
   });
 
   ev("thinking", {
-    message: `Assemblage en cours : ${Object.keys(legendes).length} legendes, ` +
+    message: `Assemblage metre-first : ${Object.keys(legendes).length} legendes, ` +
       `${Object.keys(details).length} details, ${Object.keys(fiches).length} fiches, ` +
       `${Object.keys(vision).length} comptages visuels. ` +
-      `Les poids sont calcules par le moteur deterministe (masses lineiques normatives).`,
+      `Longueurs -> recouvrement (5.50m utile/6m) -> quantites -> poids (masses lineiques).`,
     stage: "assembly",
   });
 

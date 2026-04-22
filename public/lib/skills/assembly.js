@@ -1,17 +1,18 @@
 // ==========================================================================
-// SKILL : Assemblage deterministe du Carnet BA
+// SKILL : Assemblage deterministe du Carnet BA — METRE-FIRST
 // ==========================================================================
 // Construit le Carnet BA a partir des donnees extraites et des comptages
 // visuels. AUCUN appel IA : tous les poids sont calcules par le moteur
 // deterministe (calculation.js) et les quantites viennent des comptages
 // vision + regles metier.
 //
+// METRE-FIRST : pour les elements lineaires, la vision fournit la
+// longueur totale en metres. Le code applique ensuite le recouvrement
+// (5.50m utile par barre de 6m) pour calculer le nombre d'unites.
+//
 // Usage :
 //   import { assembleCarnet } from "./skills/assembly.js";
 //   const carnet = assembleCarnet({ metadonnees, legendes, details, fiches, vision, hypotheses });
-//
-// Le resultat est un objet CarnetBA pret a l'affichage, avec poids_total
-// recalcule pour chaque ligne et section.
 // ==========================================================================
 
 import {
@@ -24,10 +25,12 @@ import {
   poidsAttentesBlocsABancher,
   round2,
   MASSES_LINEIQUES,
+  LONGUEUR_BARRE_STD,
+  nbUnitesFromMetre,
+  longueurUtile,
 } from "../calculation.js";
 
 // ---- Regles de quantite par defaut (section 6 de la specification) ----
-// Ces regles sont appliquees quand les details ne les redefinissent pas.
 
 const DEFAULT_RULES = {
   attentes_cv_fondation: {
@@ -114,9 +117,6 @@ const HAUTEURS_DEFAUT = {
 };
 const HAUTEUR_DEFAUT = 2.80;
 
-// Longueur standard des elements lineaires (en metres)
-const LONGUEUR_UNITE_LINEAIRE = 6.0;
-
 // Elements qui ont des fiches de fabrication (poids deja connu)
 const FABRICATION_REPERES = new Set([
   "Ptre_01", "Ptre_02", "Ptre_03", "Ptre_04", "Ptre_05",
@@ -133,7 +133,6 @@ export function assembleCarnet({ metadonnees, legendes, details, fiches, vision,
     zone_sismique: metadonnees?.zone_sismique ?? hypotheses?.zone_sismique ?? "",
   };
 
-  // Construire les sections par niveau
   const niveaux = collectNiveaux(legendes, vision);
   const sections = [];
 
@@ -144,7 +143,6 @@ export function assembleCarnet({ metadonnees, legendes, details, fiches, vision,
     }
   }
 
-  // Finaliser : calculer les totaux par section et le total general
   const finalSections = sections.map((s) => {
     const poids_section_kg = round2(
       s.lignes.reduce((acc, l) => acc + l.poids_total_kg, 0),
@@ -191,6 +189,8 @@ function buildSection(niveau, legendes, details, fiches, vision) {
         designation: fiche.repere || key,
         nomenclature: `Fiche ${fiche.repere} ${fiche.section || ""}`.trim(),
         type_armature: "FABRICATION",
+        longueur_totale_m: null,
+        longueur_unitaire_m: null,
         poids_unitaire_kg: round2(Number(fiche.poids_acier_kg) || 0),
         quantite: Math.max(qty, 1),
         poids_total_kg: round2((Number(fiche.poids_acier_kg) || 0) * Math.max(qty, 1)),
@@ -203,17 +203,20 @@ function buildSection(niveau, legendes, details, fiches, vision) {
   // 4. Attentes blocs a bancher (si fondations)
   if (niveau === "Fondations" || /fondation/i.test(niveau)) {
     const poidsABB = round2(poidsAttentesBlocsABancher());
-    const sfCount = getLinearCount(visionData, "SF50") +
-      getLinearCount(visionData, "SF50e");
-    if (sfCount > 0) {
+    const sfLengthM = getLinearLength(visionData, "SF50") +
+      getLinearLength(visionData, "SF50e");
+    const sfUnits = nbUnitesFromMetre("SF50", sfLengthM);
+    if (sfUnits > 0) {
       lignes.push({
         designation: "Attentes blocs a bancher",
         nomenclature: "Module 2HA8 fil. + U HA8 esp.15",
         type_armature: "STANDARD",
+        longueur_totale_m: round2(sfLengthM),
+        longueur_unitaire_m: longueurUtile("SF50"),
         poids_unitaire_kg: poidsABB,
-        quantite: sfCount,
-        poids_total_kg: round2(poidsABB * sfCount),
-        detail_calcul: `${sfCount} unites x ${poidsABB} kg`,
+        quantite: sfUnits,
+        poids_total_kg: round2(poidsABB * sfUnits),
+        detail_calcul: `${round2(sfLengthM)}m total -> ${sfUnits} unites x ${poidsABB} kg`,
         confiance: "HAUTE",
       });
     }
@@ -228,19 +231,22 @@ function buildCageLine(arm, visionData, hauteur) {
   const repere = arm.repere;
   const isLinear = isLinearElement(repere);
 
-  // Determiner la quantite depuis les comptages vision
-  let quantite, longueur;
+  let quantite, longueur, longueurTotaleM, longueurUnitaireM;
   if (isLinear) {
-    quantite = getLinearCount(visionData, repere);
-    longueur = LONGUEUR_UNITE_LINEAIRE;
+    longueurTotaleM = getLinearLength(visionData, repere);
+    if (longueurTotaleM <= 0) return null;
+    longueurUnitaireM = longueurUtile(repere);
+    quantite = nbUnitesFromMetre(repere, longueurTotaleM);
+    longueur = LONGUEUR_BARRE_STD;
   } else {
     quantite = getVisionCount(visionData, repere);
     longueur = hauteur;
+    longueurTotaleM = null;
+    longueurUnitaireM = null;
   }
 
   if (quantite <= 0) return null;
 
-  // Calculer le poids unitaire avec le moteur deterministe
   let poidsUnitaire;
   try {
     poidsUnitaire = poidsCageStandard({
@@ -260,14 +266,20 @@ function buildCageLine(arm, visionData, hauteur) {
 
   const nomenclature = formatNomenclature(arm);
 
+  const detailParts = isLinear
+    ? `${round2(longueurTotaleM)}m total / ${longueurUnitaireM}m utile -> ${quantite} x cage L=${longueur}m`
+    : `${quantite} x cage ${nomenclature} L=${longueur}m`;
+
   return {
     designation: repere,
     nomenclature,
     type_armature: "STANDARD",
+    longueur_totale_m: longueurTotaleM !== null ? round2(longueurTotaleM) : null,
+    longueur_unitaire_m: longueurUnitaireM,
     poids_unitaire_kg: poidsUnitaire,
     quantite,
     poids_total_kg: round2(poidsUnitaire * quantite),
-    detail_calcul: `${quantite} x cage ${nomenclature} L=${longueur}m = ${round2(poidsUnitaire * quantite)} kg`,
+    detail_calcul: detailParts,
     confiance: "HAUTE",
   };
 }
@@ -286,7 +298,6 @@ function buildCoupeFaconneLines(niveau, visionData, details) {
   const anglesT = Number(angles.angles_T) || 0;
   const jonctionsLtCV = Number(angles.jonctions_linteau_CV) || 0;
 
-  // Attentes CV
   if (cvCount > 0) {
     const rule = DEFAULT_RULES.attentes_cv_fondation;
     const pU = round2(poidsEquerre(rule.diametre, ...rule.dims));
@@ -294,49 +305,42 @@ function buildCoupeFaconneLines(niveau, visionData, details) {
     lignes.push(makeCoupeFaconne(rule, pU, qte, `${cvCount} CV x ${rule.quantite_par_element}`));
   }
 
-  // Attentes Pot.1
   if (pot1Count > 0) {
     const rule = DEFAULT_RULES.attentes_pot1;
     const pU = round2(poidsEquerre(rule.diametre, ...rule.dims));
     const qte = pot1Count * rule.quantite_par_element;
     lignes.push(makeCoupeFaconne(rule, pU, qte, `${pot1Count} Pot.1 x ${rule.quantite_par_element}`));
 
-    // Liaison Pot.1 en tete
     const ruleTete = DEFAULT_RULES.liaison_pot1_tete;
     const pUT = round2(poidsU(ruleTete.diametre, ...ruleTete.dims));
     const qteT = pot1Count * ruleTete.quantite_par_element;
     lignes.push(makeCoupeFaconne(ruleTete, pUT, qteT, `${pot1Count} Pot.1 x ${ruleTete.quantite_par_element}`));
   }
 
-  // Attentes Pot.2
   if (pot2Count > 0) {
     const rule = DEFAULT_RULES.attentes_pot2;
     const pU = round2(poidsEquerre(rule.diametre, ...rule.dims));
     const qte = pot2Count * rule.quantite_par_element;
     lignes.push(makeCoupeFaconne(rule, pU, qte, `${pot2Count} Pot.2 x ${rule.quantite_par_element}`));
 
-    // Liaison Pot.2 en tete
     const ruleTete = DEFAULT_RULES.liaison_pot2_tete;
     const pUT = round2(poidsU(ruleTete.diametre, ...ruleTete.dims));
     const qteT = pot2Count * ruleTete.quantite_par_element;
     lignes.push(makeCoupeFaconne(ruleTete, pUT, qteT, `${pot2Count} Pot.2 x ${ruleTete.quantite_par_element}`));
   }
 
-  // U liaison angles L
   if (anglesL > 0) {
     const rule = DEFAULT_RULES.liaison_angle_l;
     const pU = round2(poidsU(rule.diametre, ...rule.dims));
     const qte = anglesL * rule.quantite_par_jonction;
     lignes.push(makeCoupeFaconne(rule, pU, qte, `${anglesL} angles L x ${rule.quantite_par_jonction}`));
 
-    // Equerres d'angles
     const ruleEq = DEFAULT_RULES.equerres_angles;
     const pUEq = round2(poidsEquerre(ruleEq.diametre, ...ruleEq.dims));
     const qteEq = anglesL * ruleEq.quantite_par_jonction;
     lignes.push(makeCoupeFaconne(ruleEq, pUEq, qteEq, `${anglesL} angles x ${ruleEq.quantite_par_jonction}`));
   }
 
-  // U liaison angles T
   if (anglesT > 0) {
     const rule = DEFAULT_RULES.liaison_angle_t;
     const pU = round2(poidsU(rule.diametre, ...rule.dims));
@@ -344,7 +348,6 @@ function buildCoupeFaconneLines(niveau, visionData, details) {
     lignes.push(makeCoupeFaconne(rule, pU, qte, `${anglesT} angles T x ${rule.quantite_par_jonction}`));
   }
 
-  // U liaison linteau/CV
   if (jonctionsLtCV > 0) {
     const rule = DEFAULT_RULES.liaison_linteau_cv;
     const pU = round2(poidsU(rule.diametre, ...rule.dims));
@@ -360,6 +363,8 @@ function makeCoupeFaconne(rule, poidsUnitaire, quantite, detail) {
     designation: rule.designation,
     nomenclature: rule.nomenclature,
     type_armature: "COUPE FACONNE",
+    longueur_totale_m: null,
+    longueur_unitaire_m: null,
     poids_unitaire_kg: poidsUnitaire,
     quantite,
     poids_total_kg: round2(poidsUnitaire * quantite),
@@ -399,11 +404,11 @@ function getVisionCount(visionData, repere) {
   return 0;
 }
 
-function getLinearCount(visionData, repere) {
+function getLinearLength(visionData, repere) {
   if (!visionData?.elements_lineaires) return 0;
   const el = visionData.elements_lineaires[repere];
   if (!el) return 0;
-  return Math.max(0, Number(el.nb_unites_6m) || 0);
+  return Math.max(0, Number(el.longueur_totale_m) || 0);
 }
 
 function findFichesForNiveau(niveau, fiches) {

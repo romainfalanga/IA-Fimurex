@@ -2,7 +2,7 @@
 // Cote 100% client : aucun Worker intermediaire, donc aucune limite de
 // sous-requetes Cloudflare. La cle API reste chez l'utilisateur.
 
-export const MODEL = "google/gemini-2.0-flash-001";
+export const MODEL = "google/gemini-2.5-flash";
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 
 export async function chat({ apiKey, system, user, jsonResponse = false }) {
