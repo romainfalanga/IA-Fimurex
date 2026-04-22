@@ -12,24 +12,27 @@
 //   const { anomalies, warnings } = validateCarnet(carnet, extracted, vision);
 // ==========================================================================
 
-import { round2, nbUnitesFromMetre, longueurUtile, LONGUEUR_BARRE_STD } from "../calculation.js";
+import { round2 } from "../calculation.js";
 
 // Fourchettes de poids unitaire plausibles par type d'element (kg)
 const WEIGHT_RANGES = {
-  CV: [3, 35],
-  SF50: [10, 50],
-  SF50e: [10, 55],
-  CH: [5, 40],
-  CP: [5, 40],
-  Lt1: [2, 25],
-  Lt2: [3, 35],
-  Lt3: [5, 45],
-  Lt4: [8, 55],
-  "Pot.1": [3, 60],
-  "Pot.2": [5, 100],
-  Equerre: [0.2, 5.0],
-  U: [0.2, 6.0],
-  Crosse: [0.1, 4.0],
+  CV: [1, 40],
+  SF50: [8, 55],
+  SF50e: [8, 60],
+  CH: [3, 45],
+  CP: [3, 45],
+  SI1: [1, 30],
+  SI2: [2, 50],
+  Lt1: [1, 25],
+  Lt2: [2, 35],
+  Lt3: [3, 50],
+  Lt4: [5, 60],
+  Ltvs: [1, 25],
+  "Pot.1": [2, 70],
+  "Pot.2": [3, 120],
+  Equerre: [0.1, 6.0],
+  U: [0.1, 7.0],
+  Crosse: [0.05, 5.0],
 };
 
 export function validateCarnet(carnet, extracted, visionResults) {
@@ -136,8 +139,8 @@ export function validateCarnet(carnet, extracted, visionResults) {
   // 5. Recouvrement consistency (metre-first)
   for (const s of carnet.sections) {
     for (const l of s.lignes) {
-      if (l.longueur_totale_m != null && l.longueur_unitaire_m != null) {
-        const expectedQte = nbUnitesFromMetre(l.designation, l.longueur_totale_m);
+      if (l.longueur_totale_m != null && l.longueur_unitaire_m != null && l.longueur_unitaire_m > 0) {
+        const expectedQte = Math.ceil(l.longueur_totale_m / l.longueur_unitaire_m);
         if (expectedQte !== l.quantite) {
           warnings.push(
             `[${s.section}] ${l.designation} : quantite ${l.quantite} != ` +

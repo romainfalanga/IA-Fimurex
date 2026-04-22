@@ -107,6 +107,26 @@ const DEFAULT_RULES = {
   },
 };
 
+// Armatures par defaut pour les elements courants quand la legende ne les definit pas
+const DEFAULT_ARMATURES = {
+  CV: { repere: "CV", nb_barres: 4, diametre_barre: 10, type_transversal: "Cad", diametre_transversal: 6, dim1_transversal_cm: 15, dim2_transversal_cm: 15, espacement_cm: 20 },
+  SI1: { repere: "SI1", nb_barres: 4, diametre_barre: 10, type_transversal: "Cad", diametre_transversal: 6, dim1_transversal_cm: 60, dim2_transversal_cm: 60, espacement_cm: 20 },
+  SI2: { repere: "SI2", nb_barres: 6, diametre_barre: 12, type_transversal: "Cad", diametre_transversal: 6, dim1_transversal_cm: 80, dim2_transversal_cm: 80, espacement_cm: 20 },
+  "Pot.1": { repere: "Pot.1", nb_barres: 4, diametre_barre: 12, type_transversal: "Cad", diametre_transversal: 6, dim1_transversal_cm: 15, dim2_transversal_cm: 30, espacement_cm: 15 },
+  "Pot.2": { repere: "Pot.2", nb_barres: 6, diametre_barre: 14, type_transversal: "Cad", diametre_transversal: 8, dim1_transversal_cm: 20, dim2_transversal_cm: 40, espacement_cm: 15 },
+  Lt1: { repere: "Lt1", nb_barres: 4, diametre_barre: 10, type_transversal: "Cad", diametre_transversal: 6, dim1_transversal_cm: 15, dim2_transversal_cm: 20, espacement_cm: 15 },
+  Lt2: { repere: "Lt2", nb_barres: 4, diametre_barre: 12, type_transversal: "Cad", diametre_transversal: 6, dim1_transversal_cm: 15, dim2_transversal_cm: 25, espacement_cm: 15 },
+  Lt3: { repere: "Lt3", nb_barres: 4, diametre_barre: 14, type_transversal: "Cad", diametre_transversal: 8, dim1_transversal_cm: 15, dim2_transversal_cm: 30, espacement_cm: 15 },
+  Lt4: { repere: "Lt4", nb_barres: 6, diametre_barre: 14, type_transversal: "Cad", diametre_transversal: 8, dim1_transversal_cm: 20, dim2_transversal_cm: 35, espacement_cm: 15 },
+  Ltvs: { repere: "Ltvs", nb_barres: 4, diametre_barre: 10, type_transversal: "Cad", diametre_transversal: 6, dim1_transversal_cm: 15, dim2_transversal_cm: 20, espacement_cm: 15 },
+};
+
+// Longueurs par defaut pour les elements ponctuels non-cage (semelles isolees)
+const LONGUEURS_ELEMENTS = {
+  SI1: 0.60,
+  SI2: 0.80,
+};
+
 // Hauteurs par defaut des elements ponctuels selon le niveau (en metres)
 const HAUTEURS_DEFAUT = {
   Fondations: 0.50,
@@ -166,11 +186,36 @@ function buildSection(niveau, legendes, details, fiches, vision) {
   const hauteur = HAUTEURS_DEFAUT[niveau] ?? HAUTEUR_DEFAUT;
 
   // 1. STANDARD : cages d'armatures (depuis legende + comptages vision)
+  const coveredReperes = new Set();
   if (legende?.armatures && visionData) {
     for (const arm of legende.armatures) {
       if (!arm.repere || FABRICATION_REPERES.has(arm.repere)) continue;
+      coveredReperes.add(arm.repere);
       const ligne = buildCageLine(arm, visionData, hauteur);
       if (ligne) lignes.push(ligne);
+    }
+  }
+
+  // 1b. FALLBACK : elements vus par vision mais absents de la legende
+  if (visionData) {
+    const allVisionReperes = [
+      ...Object.keys(visionData.elements_ponctuels || {}),
+      ...Object.keys(visionData.linteaux || {}),
+    ];
+    for (const repere of allVisionReperes) {
+      if (coveredReperes.has(repere)) continue;
+      if (FABRICATION_REPERES.has(repere)) continue;
+      const count = getVisionCount(visionData, repere);
+      if (count <= 0) continue;
+      const defaultArm = DEFAULT_ARMATURES[repere];
+      if (!defaultArm) continue;
+      const elemLongueur = LONGUEURS_ELEMENTS[repere] ?? hauteur;
+      const ligne = buildCageLine(defaultArm, visionData, elemLongueur);
+      if (ligne) {
+        ligne.confiance = "MOYENNE";
+        ligne.detail_calcul += " (armature par defaut)";
+        lignes.push(ligne);
+      }
     }
   }
 
